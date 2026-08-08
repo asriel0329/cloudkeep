@@ -40,13 +40,19 @@ INSTALLED_APPS = [
     # 第三方套件
     "rest_framework",
     "corsheaders",
-    # 專案內部模組（批次 1 之後陸續打開）
-    # "app.auth",
+    # 專案內部模組（批次進度陸續打開）
+    "app.auth",
     # "app.folders",
     # "app.files",
     # "app.permissions",
     # "app.shares",
 ]
+
+# 告訴 Django：整個專案要用哪個 model 當「使用者」，
+# 格式是 "app_label.ModelName"。因為 app/auth/apps.py 裡
+# 把 app_label 設成了 "accounts"（避免跟內建 auth 撞名），
+# 所以這裡要寫 "accounts.User"，不是 "auth.User"。
+AUTH_USER_MODEL = "accounts.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -147,6 +153,11 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS", "http://localhost:3000"
 ).split(",")
+
+# SessionAuthentication 預設會檢查 CSRF token，前端（React）要打帶
+# cookie 的 API 時，記得也要一併處理 CSRF cookie，不然 POST 會被擋。
+# 開發階段先允許帶 credentials 的跨來源請求：
+CORS_ALLOW_CREDENTIALS = True
 
 # ---------------------------------------------------------------------------
 # Storage backend 設定（批次 3 才會實際用到，先留欄位）
