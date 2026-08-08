@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cloud_drive}
+      POSTGRES_USER: ${POSTGRES_USER:-cloud_drive}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+      - media_data:/app/media
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #   volumes:
+  #     - ./frontend:/app
+  #   ports:
+  #     - "3000:3000"
+
+  # 以下服務等 Phase 3 再啟用
+  # redis:
+  #   image: redis:7
+  #   ports:
+  #     - "6379:6379"
+  #
+  # celery:
+  #   build:
+  #     context: ./backend
+  #   command: celery -A app worker -l info
+  #   depends_on:
+  #     - redis
+  #     - db
+
+volumes:
+  postgres_data:
+  media_data:
