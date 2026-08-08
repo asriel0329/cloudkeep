@@ -10,6 +10,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cloud_drive}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
@@ -23,8 +28,13 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      # 容器內部的 DB host 一律是 service 名稱 "db"，不是 localhost
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   # frontend:
   #   build:
