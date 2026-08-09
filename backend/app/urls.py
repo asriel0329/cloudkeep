@@ -18,8 +18,8 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/health/", health_check),
     path("api/auth/", include("app.auth.urls")),
+    path("api/folders/", include("app.folders.urls")),
     # 之後的批次陸續打開：
-    # path("api/folders/", include("app.folders.urls")),
     # path("api/files/", include("app.files.urls")),
     # path("api/shares/", include("app.shares.urls")),
 ]
