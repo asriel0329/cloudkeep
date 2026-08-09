@@ -13,6 +13,14 @@ class FolderSerializer(serializers.ModelSerializer):
 
     owner = serializers.PrimaryKeyRelatedField(read_only=True)
 
+    # 明確宣告 parent 欄位、明講它不是必填，不要依賴 DRF 自動根據
+    # model 的 null/blank 去推斷「必填與否」。不同版本的 DRF 對這個
+    # 推斷邏輯不完全一致，明確寫出來比較保險：不帶 parent 或傳
+    # null，都代表「這是根目錄底下的資料夾」。
+    parent = serializers.PrimaryKeyRelatedField(
+        queryset=Folder.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = Folder
         fields = ["id", "name", "parent", "owner", "created_at", "updated_at"]
