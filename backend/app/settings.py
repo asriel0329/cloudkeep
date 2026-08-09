@@ -43,7 +43,7 @@ INSTALLED_APPS = [
     # 專案內部模組（批次進度陸續打開）
     "app.auth",
     "app.folders",
-    # "app.files",
+    "app.files",
     # "app.permissions",
     # "app.shares",
 ]
