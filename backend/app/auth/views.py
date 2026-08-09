@@ -3,7 +3,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
+from django.middleware.csrf import get_token
 from .serializers import LoginSerializer, RegisterSerializer, UserSerializer
 
 User = get_user_model()
@@ -81,3 +81,11 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+class CsrfView(APIView):
+    """GET /api/auth/csrf/ —— 純粹用來讓 Django 設定 csrftoken cookie"""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({"csrfToken": get_token(request)})

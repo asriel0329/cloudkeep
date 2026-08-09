@@ -151,7 +151,13 @@ REST_FRAMEWORK = {
 # ---------------------------------------------------------------------------
 
 CORS_ALLOWED_ORIGINS = os.environ.get(
-    "CORS_ALLOWED_ORIGINS", "http://localhost:3000"
+    "CORS_ALLOWED_ORIGINS", "http://localhost:5173"
+).split(",")
+
+# 前後端是不同 port（不同 origin），Django 的 CSRF 保護需要明確知道
+# 哪些外部來源是「可信任的」，才會接受帶著 CSRF token 的跨來源請求。
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    "CSRF_TRUSTED_ORIGINS", "http://localhost:5173"
 ).split(",")
 
 # SessionAuthentication 預設會檢查 CSRF token，前端（React）要打帶
