@@ -4,19 +4,8 @@ from .models import Folder
 
 
 class FolderSerializer(serializers.ModelSerializer):
-    """
-    owner 設成 read_only：使用者不能透過 API 假造「這個資料夾是別人的」，
-    owner 一律由後端在 view 裡自動填成「目前登入的使用者」（request.user），
-    這是很基本但重要的安全習慣——凡是「歸屬權」相關的欄位，都不該讓
-    前端自己填，一定要後端從登入狀態決定。
-    """
-
     owner = serializers.PrimaryKeyRelatedField(read_only=True)
 
-    # 明確宣告 parent 欄位、明講它不是必填，不要依賴 DRF 自動根據
-    # model 的 null/blank 去推斷「必填與否」。不同版本的 DRF 對這個
-    # 推斷邏輯不完全一致，明確寫出來比較保險：不帶 parent 或傳
-    # null，都代表「這是根目錄底下的資料夾」。
     parent = serializers.PrimaryKeyRelatedField(
         queryset=Folder.objects.all(), required=False, allow_null=True
     )
@@ -32,9 +21,14 @@ class FolderSerializer(serializers.ModelSerializer):
 
         request = self.context.get("request")
 
-        # 防止使用者把資料夾的 parent 指向「別人的資料夾」，
-        # 不然 A 使用者理論上可以偷偷把自己的資料夾塞進 B 使用者的樹裡。
-        if parent.owner_id != request.user.id:
+        # 原本這裡只檢查「是不是你自己的資料夾」，現在改成檢查
+        # 「你至少有唯讀權限」——因為現在資料夾可能是別人透過
+        # Permission 授權給你的，不再只有擁有者才能操作。
+        # 真正「能不能寫入」的權限會在 view 層另外檢查，這裡只做
+        # 「這個資料夾對你來說存不存在」的基本檢查。
+        from app.permissions.utils import has_read_access
+
+        if not has_read_access(request.user, parent):
             raise serializers.ValidationError("找不到這個父資料夾。")
 
         return parent

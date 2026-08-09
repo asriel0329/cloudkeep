@@ -34,7 +34,14 @@ class FileUploadSerializer(serializers.Serializer):
     def validate_folder(self, folder):
         if folder is None:
             return folder
+
         request = self.context["request"]
-        if folder.owner_id != request.user.id:
-            raise serializers.ValidationError("找不到這個資料夾。")
+
+        # 原本只檢查擁有者，現在改成檢查是否有寫入權限
+        # （因為要能「上傳檔案到這個資料夾」，至少要有 write）
+        from app.permissions.utils import has_write_access
+
+        if not has_write_access(request.user, folder):
+            raise serializers.ValidationError("找不到這個資料夾，或你沒有寫入權限。")
+
         return folder

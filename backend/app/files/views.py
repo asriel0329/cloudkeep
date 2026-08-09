@@ -2,10 +2,12 @@ import hashlib
 
 from django.http import FileResponse, Http404
 from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from app.permissions.utils import has_read_access, has_write_access
 from app.storage import get_storage
 
 from .models import File
@@ -15,24 +17,33 @@ from .utils import generate_storage_key
 
 class FileListView(generics.ListAPIView):
     """
-    GET /api/files/            -> 根目錄底下的檔案
-    GET /api/files/?folder=5   -> id=5 資料夾底下的檔案
+    GET /api/files/            -> 根目錄底下自己的檔案
+    GET /api/files/?folder=5   -> id=5 資料夾底下的檔案（有唯讀權限就能看）
     """
 
     serializer_class = FileSerializer
 
     def get_queryset(self):
-        queryset = File.objects.filter(owner=self.request.user)
         folder_id = self.request.query_params.get("folder")
+
         if folder_id is None:
-            return queryset.filter(folder__isnull=True)
-        return queryset.filter(folder_id=folder_id)
+            return File.objects.filter(owner=self.request.user, folder__isnull=True)
+
+        from django.shortcuts import get_object_or_404
+
+        from app.folders.models import Folder
+
+        folder = get_object_or_404(Folder, pk=folder_id)
+        if not has_read_access(self.request.user, folder):
+            raise PermissionDenied("你沒有權限查看這個資料夾。")
+
+        return File.objects.filter(folder_id=folder_id)
 
 
 class FileUploadView(APIView):
     """
     POST /api/files/upload/   (multipart/form-data)
-    fields: file, folder (可省略，代表存進根目錄)
+    fields: file, folder (可省略，代表存進自己的根目錄)
     """
 
     parser_classes = [MultiPartParser]
@@ -46,18 +57,19 @@ class FileUploadView(APIView):
         uploaded_file = serializer.validated_data["file"]
         folder = serializer.validated_data.get("folder")
 
-        # 邊讀邊算 SHA-256，避免一次把整個檔案塞進記憶體
-        # （大檔案上傳時這件事很重要，不然容易把伺服器記憶體榨乾）
         hasher = hashlib.sha256()
         for chunk in uploaded_file.chunks():
             hasher.update(chunk)
         file_hash = hasher.hexdigest()
-        uploaded_file.seek(0)  # 算完 hash 要把讀取位置歸零，不然存檔會存到空的
+        uploaded_file.seek(0)
 
         storage = get_storage()
         storage_key = generate_storage_key(request.user.id, uploaded_file.name)
         storage.save(uploaded_file, storage_key)
 
+        # 注意：檔案的 owner 是「上傳的人」，不是資料夾擁有者，邏輯跟
+        # Folder 的 perform_create 一致——你上傳到別人分享給你、且你
+        # 有寫入權限的資料夾裡，這個檔案仍然是「你上傳的」。
         file_obj = File.objects.create(
             name=uploaded_file.name,
             owner=request.user,
@@ -73,28 +85,60 @@ class FileUploadView(APIView):
 
 class FileDetailView(generics.RetrieveDestroyAPIView):
     """
-    GET    /api/files/<id>/  -> 檔案 metadata
-    DELETE /api/files/<id>/  -> 刪除檔案（連同底層儲存的實際檔案一起刪）
+    GET    /api/files/<id>/  -> 有唯讀權限就能看
+    DELETE /api/files/<id>/  -> 需要寫入權限
     """
 
     serializer_class = FileSerializer
 
     def get_queryset(self):
-        return File.objects.filter(owner=self.request.user)
+        return File.objects.all()
+
+    def get_object(self):
+        file_obj = super().get_object()
+
+        # 根目錄底下的檔案（folder=None）沒有 Permission 概念可以繼承，
+        # 這時候只能靠「是不是擁有者」判斷；有 folder 的話，
+        # 就看對那個 folder 的權限。
+        if file_obj.folder is None:
+            allowed = file_obj.owner_id == self.request.user.id
+        else:
+            allowed = has_read_access(self.request.user, file_obj.folder)
+
+        if not allowed:
+            raise Http404
+
+        return file_obj
 
     def perform_destroy(self, instance):
+        if instance.folder is None:
+            allowed = instance.owner_id == self.request.user.id
+        else:
+            allowed = has_write_access(self.request.user, instance.folder)
+
+        if not allowed:
+            raise PermissionDenied("你沒有權限刪除這個檔案。")
+
         storage = get_storage()
         storage.delete(instance.storage_key)
         instance.delete()
 
 
 class FileDownloadView(APIView):
-    """GET /api/files/<id>/download/  -> 實際下載檔案內容"""
+    """GET /api/files/<id>/download/"""
 
     def get(self, request, pk):
         try:
-            file_obj = File.objects.get(pk=pk, owner=request.user)
+            file_obj = File.objects.get(pk=pk)
         except File.DoesNotExist:
+            raise Http404
+
+        if file_obj.folder is None:
+            allowed = file_obj.owner_id == request.user.id
+        else:
+            allowed = has_read_access(request.user, file_obj.folder)
+
+        if not allowed:
             raise Http404
 
         storage = get_storage()
