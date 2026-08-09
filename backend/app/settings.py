@@ -44,8 +44,8 @@ INSTALLED_APPS = [
     "app.auth",
     "app.folders",
     "app.files",
-    # "app.permissions",
-    # "app.shares",
+    "app.permissions",
+    "app.shares",
 ]
 
 # 告訴 Django：整個專案要用哪個 model 當「使用者」，
