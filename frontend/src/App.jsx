@@ -24,6 +24,15 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* 新增：進入子資料夾時網址會變成 /folder/5 這種形式 */}
+      <Route
+        path="/folder/:folderId"
+        element={
+          <ProtectedRoute>
+            <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 }
