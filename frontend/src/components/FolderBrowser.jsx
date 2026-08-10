@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { createFolder, getFolder, listFolders } from "../api/folders";
+import { listFiles, deleteFile, downloadFile } from "../api/files";
+import FileUploader from "./FileUploader";
+import FileList from "./FileList";
 
 export default function FolderBrowser() {
   // folderId 從網址取得，例如 /folder/5 -> folderId = "5"
@@ -10,6 +13,7 @@ export default function FolderBrowser() {
 
   const [folder, setFolder] = useState(null); // 目前資料夾本身的資訊，根目錄時是 null
   const [subfolders, setSubfolders] = useState([]);
+  const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [newFolderName, setNewFolderName] = useState("");
@@ -22,13 +26,15 @@ export default function FolderBrowser() {
       setLoading(true);
       setError(null);
       try {
-        const [folderData, subfolderData] = await Promise.all([
+        const [folderData, subfolderData, fileData] = await Promise.all([
           folderId ? getFolder(folderId) : Promise.resolve(null),
           listFolders(folderId),
+          listFiles(folderId),
         ]);
         if (!cancelled) {
           setFolder(folderData);
           setSubfolders(subfolderData);
+          setFiles(fileData);
         }
       } catch (err) {
         if (!cancelled) {
@@ -45,6 +51,28 @@ export default function FolderBrowser() {
       cancelled = true;
     };
   }, [folderId]);
+
+  async function refreshFiles() {
+    const fileData = await listFiles(folderId);
+    setFiles(fileData);
+  }
+
+  async function handleDownload(file) {
+    const blob = await downloadFile(file.id);
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
+  async function handleDeleteFile(file) {
+    await deleteFile(file.id);
+    setFiles((prev) => prev.filter((f) => f.id !== file.id));
+  }
 
   async function handleCreateFolder(e) {
     e.preventDefault();
@@ -117,8 +145,9 @@ export default function FolderBrowser() {
         </ul>
       )}
 
-      <hr />
-      <p style={{ color: "#888" }}>檔案上傳/下載功能會在下一批（F3）加入。</p>
+        <hr />
+        <FileUploader folderId={folderId} onUploaded={refreshFiles} />
+        <FileList files={files} onDownload={handleDownload} onDelete={handleDeleteFile} />
     </div>
   );
 }
