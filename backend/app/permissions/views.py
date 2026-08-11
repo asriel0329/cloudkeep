@@ -1,4 +1,5 @@
 from rest_framework import generics
+from rest_framework.response import Response
 
 from app.folders.models import Folder
 
@@ -37,17 +38,26 @@ class PermissionRevokeView(generics.DestroyAPIView):
 class SharedWithMeView(generics.ListAPIView):
     """
     GET /api/permissions/shared-with-me/
-    列出「別人直接授權給我」的資料夾（注意：這裡只列出直接被授權的，
-    不會列出因為繼承而有權限、但沒被直接授權的更深層子資料夾，
-    這是刻意的簡化，避免列表查詢要遞迴整棵樹）
+    列出別人直接授權給我的資料夾，
+    並附上我對該資料夾的權限等級。
     """
 
-    from app.folders.serializers import FolderSerializer
+    def get(self, request, *args, **kwargs):
+        permissions = Permission.objects.filter(
+            user=request.user
+        ).select_related("folder")
 
-    serializer_class = FolderSerializer
+        data = [
+            {
+                "id": permission.folder.id,
+                "name": permission.folder.name,
+                "parent": permission.folder.parent_id,
+                "owner": permission.folder.owner.username,
+                "permission_level": permission.level,
+                "created_at": permission.folder.created_at,
+                "updated_at": permission.folder.updated_at,
+            }
+            for permission in permissions
+        ]
 
-    def get_queryset(self):
-        folder_ids = Permission.objects.filter(
-            user=self.request.user
-        ).values_list("folder_id", flat=True)
-        return Folder.objects.filter(id__in=folder_ids)
+        return Response(data)

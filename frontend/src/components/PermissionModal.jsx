@@ -46,24 +46,19 @@ export default function PermissionModal({
       return;
     }
 
-    const numericUserId = Number(userId);
-
-    if (!Number.isInteger(numericUserId) || numericUserId <= 0) {
-      setError("使用者 ID 必須是正整數");
-      return;
-    }
-
     setSaving(true);
     setError(null);
 
     try {
-      await createPermission(folder.id, numericUserId, level);
+      await createPermission(folder.id, userId.trim() , level);
 
       setUserId("");
       setLevel("read");
 
       await loadPermissions();
     } catch (err) {
+      console.log("新增權限失敗：", JSON.stringify(err.response?.data, null, 2));
+
       const message =
         err.response?.data?.detail ||
         err.response?.data?.non_field_errors?.[0] ||
@@ -236,11 +231,11 @@ export default function PermissionModal({
             </label>
 
             <input
-              type="number"
+              type="text"
               min="1"
+              placeholder="請輸入使用者ID"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
-              placeholder="例如 3"
               style={{
                 width: "100%",
                 padding: "0.6rem",
