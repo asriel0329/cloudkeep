@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const client = axios.create({
-  baseURL: "http://localhost:8000/api",
+  baseURL: "/api",
   withCredentials: true,      // 讓瀏覽器帶著 cookie（session、CSRF）一起送
   xsrfCookieName: "csrftoken",
   xsrfHeaderName: "X-CSRFToken",

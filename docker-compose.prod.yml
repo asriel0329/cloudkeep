@@ -1,0 +1,25 @@
+services:
+  backend:
+    ports: !reset []
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    ports:
+      - "8080:80" #非標準port，避免在本地和其他服務衝突
+      - "8443:443"
+    depends_on:
+      - backend
+      - frontend

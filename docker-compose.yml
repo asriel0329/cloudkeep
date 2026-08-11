@@ -24,25 +24,25 @@ services:
     volumes:
       - ./backend:/app
       - media_data:/app/media
-    ports:
-      - "8000:8000"
+    #ports:
+    #  - "8000:8000"
+    expose:
+      - "8000"
     env_file:
       - .env
     environment:
-      # 容器內部的 DB host 一律是 service 名稱 "db"，不是 localhost
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
     depends_on:
       db:
         condition: service_healthy
 
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #   volumes:
-  #     - ./frontend:/app
-  #   ports:
-  #     - "3000:3000"
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    expose:
+      - "80"
 
   # 以下服務等 Phase 3 再啟用
   # redis:
