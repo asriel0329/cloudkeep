@@ -6,7 +6,9 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.db import transaction
 
+from .tasks import process_uploaded_file
 from app.permissions.utils import has_read_access, has_write_access
 from app.storage import get_storage
 
@@ -57,12 +59,6 @@ class FileUploadView(APIView):
         uploaded_file = serializer.validated_data["file"]
         folder = serializer.validated_data.get("folder")
 
-        hasher = hashlib.sha256()
-        for chunk in uploaded_file.chunks():
-            hasher.update(chunk)
-        file_hash = hasher.hexdigest()
-        uploaded_file.seek(0)
-
         storage = get_storage()
         storage_key = generate_storage_key(request.user.id, uploaded_file.name)
         storage.save(uploaded_file, storage_key)
@@ -79,6 +75,10 @@ class FileUploadView(APIView):
             size=uploaded_file.size,
             mime_type=uploaded_file.content_type or "application/octet-stream",
         )
+        # 用 on_commit 確保這筆 File 記錄真的寫進資料庫、交易確定成功後，
+        # 才通知 Celery 去處理——避免 race condition：worker 搶快了，
+        # 這邊的 transaction 卻還沒 commit，worker 查不到這筆記錄。
+        transaction.on_commit(lambda: process_uploaded_file.delay(file_obj.id))
 
         return Response(FileSerializer(file_obj).data, status=status.HTTP_201_CREATED)
 
@@ -151,3 +151,30 @@ class FileDownloadView(APIView):
         )
         response["Content-Type"] = file_obj.mime_type
         return response
+
+class FileThumbnailView(APIView):
+    """GET /api/files/<id>/thumbnail/"""
+
+    def get(self, request, pk):
+        try:
+            file_obj = File.objects.get(pk=pk)
+        except File.DoesNotExist:
+            raise Http404
+
+        if not file_obj.thumbnail_key:
+            raise Http404
+
+        if file_obj.folder is None:
+            allowed = file_obj.owner_id == request.user.id
+        else:
+            allowed = has_read_access(request.user, file_obj.folder)
+
+        if not allowed:
+            raise Http404
+
+        storage = get_storage()
+        if not storage.exists(file_obj.thumbnail_key):
+            raise Http404
+
+        file_handle = storage.open(file_obj.thumbnail_key)
+        return FileResponse(file_handle, content_type="image/png")

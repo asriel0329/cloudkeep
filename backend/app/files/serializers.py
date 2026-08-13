@@ -9,6 +9,7 @@ class FileSerializer(serializers.ModelSerializer):
     """列出/查看檔案 metadata 用，全部欄位唯讀。"""
 
     owner = serializers.SerializerMethodField()
+    has_thumbnail = serializers.SerializerMethodField()
 
     class Meta:
         model = File
@@ -20,10 +21,15 @@ class FileSerializer(serializers.ModelSerializer):
             "size",
             "mime_type",
             "hash",
+            "processing_status",
+            "has_thumbnail",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+
+    def get_has_thumbnail(self, obj):
+        return bool(obj.thumbnail_key)
 
     def get_owner(self, obj):
         return {

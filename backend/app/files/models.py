@@ -5,6 +5,14 @@ from app.folders.models import Folder
 
 
 class File(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_DONE = "done"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "處理中"),
+        (STATUS_DONE, "完成"),
+        (STATUS_FAILED, "失敗"),
+    ]
     name = models.CharField(max_length=255)
 
     owner = models.ForeignKey(
@@ -27,7 +35,17 @@ class File(models.Model):
 
     # SHA-256 hex digest，64 個字元。Phase 1 先存起來，
     # Phase 5 做「去重偵測」時會直接用這個欄位比對。
-    hash = models.CharField(max_length=64, db_index=True)
+    hash = models.CharField(max_length=64, db_index=True, blank=True, default="")
+
+    # 縮圖的 storage_key
+    thumbnail_key = models.CharField(max_length=512, default="", blank=True)
+
+    # 檔案處理狀態
+    processing_status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING
+    )
 
     size = models.BigIntegerField()
     mime_type = models.CharField(max_length=255)

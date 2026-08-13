@@ -45,18 +45,29 @@ services:
       - "80"
 
   # 以下服務等 Phase 3 再啟用
-  # redis:
-  #   image: redis:7
-  #   ports:
-  #     - "6379:6379"
-  #
-  # celery:
-  #   build:
-  #     context: ./backend
-  #   command: celery -A app worker -l info
-  #   depends_on:
-  #     - redis
-  #     - db
+    redis:
+      image: redis:7
+      restart: unless-stopped
+      ports:
+        - "6379:6379"
+    
+    celery:
+      build:
+        context: ./backend
+      restart: unless-stopped
+      command: celery -A app worker -l info
+      volumes:
+        - ./backend:/app
+      env_file:
+        - .env
+      environment:
+        POSTGRES_HOST: db
+        POSTGRES_PORT: 5432
+      depends_on:
+        db:
+          condition: service_healthy
+        redis:
+          condition: service_started
 
 volumes:
   postgres_data:
