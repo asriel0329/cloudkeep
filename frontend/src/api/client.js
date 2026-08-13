@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const client = axios.create({
-  baseURL: "/api",
+  baseURL: import.meta.env.VITE_API_BASE_URL,
   withCredentials: true,      // 讓瀏覽器帶著 cookie（session、CSRF）一起送
   xsrfCookieName: "csrftoken",
   xsrfHeaderName: "X-CSRFToken",

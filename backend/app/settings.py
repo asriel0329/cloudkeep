@@ -26,17 +26,6 @@ DEBUG = os.environ.get("DEBUG", "True") == "True"
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
-# ---------------------------------------------------------------------------
-# Celery（P3-3 才會真正處理任務，這裡先讓連線設定就緒）
-# ---------------------------------------------------------------------------
-
-CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://redis:6379/0")
-CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
-CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SERIALIZER = "json"
-CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = TIME_ZONE
-
 
 # ---------------------------------------------------------------------------
 # App 註冊
@@ -132,6 +121,17 @@ LANGUAGE_CODE = "zh-hant"
 TIME_ZONE = "Asia/Taipei"
 USE_I18N = True
 USE_TZ = True
+
+# ---------------------------------------------------------------------------
+# Celery（P3-3 才會真正處理任務，這裡先讓連線設定就緒）
+# ---------------------------------------------------------------------------
+
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://redis:6379/0")
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
 
 # ---------------------------------------------------------------------------
 # 靜態檔案 / 媒體檔案

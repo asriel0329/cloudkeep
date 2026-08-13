@@ -71,7 +71,6 @@ class FileUploadView(APIView):
             owner=request.user,
             folder=folder,
             storage_key=storage_key,
-            hash=file_hash,
             size=uploaded_file.size,
             mime_type=uploaded_file.content_type or "application/octet-stream",
         )
