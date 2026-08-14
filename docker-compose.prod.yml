@@ -23,3 +23,9 @@ services:
     depends_on:
       - backend
       - frontend
+
+  minio:
+    ports: !reset []
+    expose:
+      - "9000"
+  
