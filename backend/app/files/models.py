@@ -52,11 +52,14 @@ class File(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["owner", "folder", "name"],
+                condition=models.Q(is_deleted=False),
                 name="unique_file_name_per_folder",
             )
         ]

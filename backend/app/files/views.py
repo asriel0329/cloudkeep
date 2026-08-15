@@ -8,6 +8,8 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db import transaction
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from .quota import has_quota_for
 from .quota import get_used_bytes
 
@@ -32,7 +34,7 @@ class FileListView(generics.ListAPIView):
         folder_id = self.request.query_params.get("folder")
 
         if folder_id is None:
-            return File.objects.filter(owner=self.request.user, folder__isnull=True)
+            return File.objects.filter(owner=self.request.user, folder__isnull=True, is_deleted=False)
 
         from django.shortcuts import get_object_or_404
 
@@ -42,7 +44,7 @@ class FileListView(generics.ListAPIView):
         if not has_read_access(self.request.user, folder):
             raise PermissionDenied("你沒有權限查看這個資料夾。")
 
-        return File.objects.filter(folder_id=folder_id)
+        return File.objects.filter(folder_id=folder_id, is_deleted=False)
 
 
 class FileUploadView(APIView):
@@ -102,7 +104,7 @@ class FileDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = FileSerializer
 
     def get_queryset(self):
-        return File.objects.all()
+        return File.objects.filter(is_deleted=False)
 
     def get_object(self):
         file_obj = super().get_object()
@@ -129,10 +131,11 @@ class FileDetailView(generics.RetrieveDestroyAPIView):
         if not allowed:
             raise PermissionDenied("你沒有權限刪除這個檔案。")
 
-        log_action(self.request.user, "delete_file", "file", instance.id, instance.name)
-        storage = get_storage()
-        storage.delete(instance.storage_key)
-        instance.delete()
+        log_action(self.request.user, "trash_file", "file", instance.id, instance.name)
+
+        instance.is_deleted = True
+        instance.deleted_at = timezone.now()
+        instance.save(update_fields=["is_deleted", "deleted_at"])
 
 
 class FileDownloadView(APIView):
@@ -205,3 +208,37 @@ class StorageQuotaView(APIView):
                 else 0,
             }
         )
+
+class FileTrashListView(generics.ListAPIView):
+    """GET /api/files/trash/"""
+
+    serializer_class = FileSerializer
+
+    def get_queryset(self):
+        return File.objects.filter(owner=self.request.user, is_deleted=True)
+
+
+class FileRestoreView(APIView):
+    """POST /api/files/<id>/restore/"""
+
+    def post(self, request, pk):
+        file_obj = get_object_or_404(File, pk=pk, owner=request.user, is_deleted=True)
+        file_obj.is_deleted = False
+        file_obj.deleted_at = None
+        file_obj.save(update_fields=["is_deleted", "deleted_at"])
+        log_action(request.user, "restore_file", "file", file_obj.id, file_obj.name)
+        return Response(FileSerializer(file_obj).data)
+
+
+class FilePermanentDeleteView(APIView):
+    """DELETE /api/files/<id>/permanent/ —— 從回收桶徹底刪除"""
+
+    def delete(self, request, pk):
+        file_obj = get_object_or_404(File, pk=pk, owner=request.user, is_deleted=True)
+
+        storage = get_storage()
+        storage.delete(file_obj.storage_key)
+
+        log_action(request.user, "purge_file", "file", file_obj.id, file_obj.name)
+        file_obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

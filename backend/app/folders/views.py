@@ -9,6 +9,14 @@ from app.permissions.utils import has_read_access, has_write_access
 from .models import Folder
 from .serializers import FolderSerializer
 
+from django.utils import timezone
+from .utils import cascade_restore, cascade_soft_delete
+
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from app.auditlog.utils import log_action
 
 class FolderListCreateView(generics.ListCreateAPIView):
     """
@@ -29,13 +37,13 @@ class FolderListCreateView(generics.ListCreateAPIView):
             # 具體某個資料夾上的），所以這裡維持只顯示自己擁有的。
             # 別人分享給你的資料夾，要透過 /api/permissions/shared-with-me/
             # 這支 API 另外查看。
-            return Folder.objects.filter(owner=self.request.user, parent__isnull=True)
+            return Folder.objects.filter(owner=self.request.user, parent__isnull=True, is_deleted=False)
 
         parent = get_object_or_404(Folder, pk=parent_id)
         if not has_read_access(self.request.user, parent):
             raise PermissionDenied("你沒有權限查看這個資料夾。")
 
-        return Folder.objects.filter(parent_id=parent_id)
+        return Folder.objects.filter(parent_id=parent_id, is_deleted=False)
 
     def perform_create(self, serializer):
         parent = serializer.validated_data.get("parent")
@@ -63,7 +71,7 @@ class FolderDetailView(generics.RetrieveUpdateDestroyAPIView):
         # 這裡刻意回傳「全部」資料夾，把權限判斷留給下面的方法，
         # 因為 GET 只需要 read，PATCH/DELETE 需要 write，
         # 兩種操作的門檻不一樣，不能用同一個 queryset 過濾解決。
-        return Folder.objects.all()
+        return Folder.objects.filter(is_deleted=False)
 
     def get_object(self):
         folder = super().get_object()
@@ -95,9 +103,42 @@ class FolderDetailView(generics.RetrieveUpdateDestroyAPIView):
 
         serializer.save()
 
-    def perform_destroy(self, instance):
-        if not has_write_access(self.request.user, instance):
-            raise PermissionDenied("你沒有權限刪除這個資料夾。")
-        
-        log_action(self.request.user, "delete_folder", "folder", instance.id, instance.name)
-        instance.delete()
+class FolderTrashListView(generics.ListAPIView):
+    """GET /api/folders/trash/ —— 列出自己回收桶裡的資料夾"""
+
+    serializer_class = FolderSerializer
+
+    def get_queryset(self):
+        return Folder.objects.filter(owner=self.request.user, is_deleted=True)
+
+
+class FolderRestoreView(APIView):
+    """POST /api/folders/<id>/restore/"""
+
+    def post(self, request, pk):
+        folder = get_object_or_404(Folder, pk=pk, owner=request.user, is_deleted=True)
+        cascade_restore(folder)
+        log_action(request.user, "restore_folder", "folder", folder.id, folder.name)
+        return Response(FolderSerializer(folder).data)
+
+
+class FolderPermanentDeleteView(APIView):
+    """DELETE /api/folders/<id>/permanent/ —— 從回收桶徹底刪除（連同底下所有內容）"""
+
+    def delete(self, request, pk):
+        folder = get_object_or_404(Folder, pk=pk, owner=request.user, is_deleted=True)
+
+        from app.storage import get_storage
+
+        storage = get_storage()
+
+        def purge(f):
+            for file_obj in f.files.all():
+                storage.delete(file_obj.storage_key)
+            for child in f.children.all():
+                purge(child)
+
+        purge(folder)
+        log_action(request.user, "purge_folder", "folder", folder.id, folder.name)
+        folder.delete()  # CASCADE 會一併刪掉底下所有子資料夾、檔案的資料庫記錄
+        return Response(status=status.HTTP_204_NO_CONTENT)

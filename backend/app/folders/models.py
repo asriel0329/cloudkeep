@@ -36,13 +36,14 @@ class Folder(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        # 同一個使用者、同一個父資料夾底下，不能有兩個同名資料夾
-        # （跟平常在自己電腦資料夾裡體驗一致：同層不能重名）
         constraints = [
             models.UniqueConstraint(
                 fields=["owner", "parent", "name"],
+                condition=models.Q(is_deleted=False),
                 name="unique_folder_name_per_parent",
             )
         ]
