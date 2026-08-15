@@ -7,6 +7,8 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db import transaction
+from .quota import has_quota_for
+from .quota import get_used_bytes
 
 from .tasks import process_uploaded_file
 from app.permissions.utils import has_read_access, has_write_access
@@ -58,6 +60,12 @@ class FileUploadView(APIView):
 
         uploaded_file = serializer.validated_data["file"]
         folder = serializer.validated_data.get("folder")
+
+        if not has_quota_for(request.user, uploaded_file.size):
+            return Response(
+                {"detail": "儲存空間不足，請刪除一些檔案或聯繫管理員提高配額。"},
+                status=status.HTTP_507_INSUFFICIENT_STORAGE,
+            )
 
         storage = get_storage()
         storage_key = generate_storage_key(request.user.id, uploaded_file.name)
@@ -177,3 +185,18 @@ class FileThumbnailView(APIView):
 
         file_handle = storage.open(file_obj.thumbnail_key)
         return FileResponse(file_handle, content_type="image/png")
+
+class StorageQuotaView(APIView):
+    """GET /api/files/quota/ —— 回傳目前使用者的儲存空間使用狀況"""
+
+    def get(self, request):
+        used = get_used_bytes(request.user)
+        return Response(
+            {
+                "used_bytes": used,
+                "quota_bytes": request.user.storage_quota_bytes,
+                "percentage": round(used / request.user.storage_quota_bytes * 100, 1)
+                if request.user.storage_quota_bytes
+                else 0,
+            }
+        )

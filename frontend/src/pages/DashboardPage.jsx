@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { listSharedWithMe } from "../api/permissions";
 import FolderBrowser from "../components/FolderBrowser";
+import QuotaBar from "../components/QuotaBar";
 
 export default function DashboardPage() {
   const { user, logout } = useAuth();
@@ -158,7 +159,7 @@ export default function DashboardPage() {
       {/* 我的檔案 */}
       <section>
         <h2>我的檔案</h2>
-
+        <QuotaBar />
         <FolderBrowser />
       </section>
     </div>
