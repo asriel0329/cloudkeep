@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { listSharedWithMe } from "../api/permissions";
 import FolderBrowser from "../components/FolderBrowser";
 import QuotaBar from "../components/QuotaBar";
-
 export default function DashboardPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -55,13 +54,9 @@ export default function DashboardPage() {
         <h1 style={{ margin: 0 }}>CloudKeep</h1>
 
         <div>
-          <span style={{ marginRight: "1rem" }}>
-            {user.username}
-          </span>
-
-          <button onClick={logout}>
-            登出
-          </button>
+          <Link to="/trash" style={{ marginRight: "1rem" }}>🗑 回收桶</Link>
+          <span style={{ marginRight: "1rem" }}>{user.username}</span>
+          <button onClick={logout}>登出</button>
         </div>
       </div>
 

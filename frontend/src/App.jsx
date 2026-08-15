@@ -14,6 +14,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
 import PublicSharePage from "./pages/PublicSharePage";
+import TrashPage from "./pages/TrashPage";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -72,6 +73,15 @@ function AppRoutes() {
       <Route
         path="*"
         element={<Navigate to="/" replace />}
+      />
+
+      <Route
+        path="/trash"
+        element={
+          <ProtectedRoute>
+            <TrashPage />
+          </ProtectedRoute>
+        }
       />
     </Routes>
   );
