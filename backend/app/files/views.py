@@ -1,4 +1,5 @@
 import hashlib
+from app.auditlog.utils import log_action
 
 from django.http import FileResponse, Http404
 from rest_framework import generics, status
@@ -87,6 +88,8 @@ class FileUploadView(APIView):
         # 這邊的 transaction 卻還沒 commit，worker 查不到這筆記錄。
         transaction.on_commit(lambda: process_uploaded_file.delay(file_obj.id))
 
+        log_action(request.user, "upload", "file", file_obj.id, file_obj.name)
+
         return Response(FileSerializer(file_obj).data, status=status.HTTP_201_CREATED)
 
 
@@ -126,6 +129,7 @@ class FileDetailView(generics.RetrieveDestroyAPIView):
         if not allowed:
             raise PermissionDenied("你沒有權限刪除這個檔案。")
 
+        log_action(self.request.user, "delete_file", "file", instance.id, instance.name)
         storage = get_storage()
         storage.delete(instance.storage_key)
         instance.delete()
@@ -152,6 +156,7 @@ class FileDownloadView(APIView):
         if not storage.exists(file_obj.storage_key):
             raise Http404
 
+        log_action(request.user, "download", "file", file_obj.id, file_obj.name)
         file_handle = storage.open(file_obj.storage_key)
         response = FileResponse(
             file_handle, as_attachment=True, filename=file_obj.name

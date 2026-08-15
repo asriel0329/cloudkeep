@@ -1,3 +1,5 @@
+from app.auditlog.utils import log_action
+
 from django.http import FileResponse, Http404
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -26,8 +28,18 @@ class ShareListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return Share.objects.filter(owner=self.request.user).order_by("-created_at")
-
-
+    def perform_create(self, serializer):
+        share = serializer.save()
+        target = share.file or share.folder
+        log_action(
+            self.request.user,
+            "create_share",
+            "file" if share.file else "folder",
+            target.id,
+            target.name,
+            detail=f"token={share.token[:8]}...",
+        )
+        
 class ShareRevokeView(generics.DestroyAPIView):
     """DELETE /api/shares/<id>/ -> 撤銷分享連結（刪掉之後 token 立刻失效）"""
 
@@ -35,6 +47,18 @@ class ShareRevokeView(generics.DestroyAPIView):
 
     def get_queryset(self):
         return Share.objects.filter(owner=self.request.user)
+
+    def perform_destroy(self, instance):
+        target = instance.file or instance.folder
+        log_action(
+            self.request.user,
+            "revoke_share",
+            "file" if instance.file else "folder",
+            target.id if target else None,
+            target.name if target else "",
+            detail=f"token={instance.token[:8]}...",
+        )
+        instance.delete()
 
 
 def _get_valid_share(token):
@@ -139,6 +163,15 @@ class SharePublicDownloadView(APIView):
         if not storage.exists(file_obj.storage_key):
             raise Http404
 
+        log_action(
+            None,  # 透過分享連結存取的人不用登入，沒有對應的使用者帳號
+            "download_via_share",
+            "file",
+            file_obj.id,
+            file_obj.name,
+            detail=f"token={share.token[:8]}...",
+        )
+        
         file_handle = storage.open(file_obj.storage_key)
         response = FileResponse(
             file_handle, as_attachment=True, filename=file_obj.name

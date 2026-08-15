@@ -1,3 +1,5 @@
+from app.auditlog.utils import log_action
+
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -96,4 +98,6 @@ class FolderDetailView(generics.RetrieveUpdateDestroyAPIView):
     def perform_destroy(self, instance):
         if not has_write_access(self.request.user, instance):
             raise PermissionDenied("你沒有權限刪除這個資料夾。")
+        
+        log_action(self.request.user, "delete_folder", "folder", instance.id, instance.name)
         instance.delete()

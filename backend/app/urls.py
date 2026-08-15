@@ -23,4 +23,5 @@ urlpatterns = [
     path("api/files/", include("app.files.urls")),
     path("api/permissions/", include("app.permissions.urls")),
     path("api/shares/", include("app.shares.urls")),
+    path("api/auditlog/", include("app.auditlog.urls")),
 ]
