@@ -10,26 +10,6 @@ from .models import File
 
 THUMBNAIL_SIZE = (256, 256)
 
-
-class _ChunkedBuffer:
-    """
-    storage.save() 目前依賴 file_obj.chunks()（Django UploadedFile 的介面），
-    但縮圖是我們自己產生的 BytesIO，沒有這個方法，用這個 wrapper 補上，
-    這樣就不用去動 storage/base.py 的抽象介面設計。
-    """
-
-    def __init__(self, buffer):
-        self._buffer = buffer
-
-    def chunks(self, chunk_size=8192):
-        self._buffer.seek(0)
-        while True:
-            data = self._buffer.read(chunk_size)
-            if not data:
-                break
-            yield data
-
-
 @app.task(bind=True, max_retries=3)
 def process_uploaded_file(self, file_id):
     try:
@@ -62,7 +42,7 @@ def process_uploaded_file(self, file_id):
                 buffer.seek(0)
 
             thumbnail_key = f"thumbnails/{file_obj.storage_key}"
-            storage.save(_ChunkedBuffer(buffer), thumbnail_key)
+            storage.save(buffer, thumbnail_key)
             file_obj.thumbnail_key = thumbnail_key
 
         file_obj.processing_status = File.STATUS_DONE

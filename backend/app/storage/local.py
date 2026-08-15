@@ -22,7 +22,7 @@ class LocalStorage(StorageBackend):
         full_path = self._full_path(storage_key)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         with open(full_path, "wb") as destination:
-            for chunk in file_obj.chunks():
+            for chunk in iter(lambda: file_obj.read(8192), b""):
                 destination.write(chunk)
 
     def open(self, storage_key: str):
