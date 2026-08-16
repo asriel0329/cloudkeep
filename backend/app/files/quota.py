@@ -12,7 +12,7 @@ def get_used_bytes(user):
     先留一個 TODO 提醒未來要回來改。
     """
 
-    total = File.objects.filter(owner=user).aggregate(total=Sum("size"))["total"]
+    total = File.objects.filter(owner=user).aggregate(total=Sum("blob__size"))["total"]
     return total or 0
 
 

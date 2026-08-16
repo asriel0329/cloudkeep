@@ -1,6 +1,9 @@
 import os
 import uuid
+from django.db import transaction
+from django.db.models import F
 
+from .models import Blob
 
 def generate_storage_key(owner_id: int, filename: str) -> str:
     """
@@ -15,3 +18,27 @@ def generate_storage_key(owner_id: int, filename: str) -> str:
 
     ext = os.path.splitext(filename)[1]
     return f"user_{owner_id}/{uuid.uuid4().hex}{ext}"
+
+def release_blob_reference(blob_id):
+    """
+    File 被永久刪除時呼叫。減少 Blob 的引用計數，
+    只有真的沒有人在用這份內容了（歸零），才把 Storage 裡的實際
+    檔案跟縮圖一併清掉，並刪除 Blob 這筆記錄。
+    """
+
+    from app.storage import get_storage
+
+    with transaction.atomic():
+        # select_for_update 鎖住這筆 Blob，避免兩個同時發生的刪除請求
+        # 同時把 reference_count 減到負數，或同時誤判「歸零了」。
+        blob = Blob.objects.select_for_update().get(pk=blob_id)
+        blob.reference_count = F("reference_count") - 1
+        blob.save(update_fields=["reference_count"])
+        blob.refresh_from_db()
+
+        if blob.reference_count <= 0:
+            storage = get_storage()
+            storage.delete(blob.storage_key)
+            if blob.thumbnail_key:
+                storage.delete(blob.thumbnail_key)
+            blob.delete()

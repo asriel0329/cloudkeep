@@ -18,6 +18,8 @@ from rest_framework.views import APIView
 
 from app.auditlog.utils import log_action
 
+from app.files.utils import release_blob_reference
+
 class FolderListCreateView(generics.ListCreateAPIView):
     """
     GET  /api/folders/            -> 列出自己根目錄下的資料夾
@@ -130,11 +132,11 @@ class FolderPermanentDeleteView(APIView):
 
         from app.storage import get_storage
 
-        storage = get_storage()
-
         def purge(f):
             for file_obj in f.files.all():
-                storage.delete(file_obj.storage_key)
+                blob_id = file_obj.blob_id
+                file_obj.delete()
+                release_blob_reference(blob_id)
             for child in f.children.all():
                 purge(child)
 
