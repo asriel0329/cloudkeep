@@ -2,8 +2,7 @@ from rest_framework import serializers
 
 from app.folders.models import Folder
 
-from .models import File
-
+from .models import File, FileVersion
 
 class FileSerializer(serializers.ModelSerializer):
     owner = serializers.SerializerMethodField()
@@ -35,6 +34,23 @@ class FileSerializer(serializers.ModelSerializer):
 
     def get_owner(self, obj):
         return {"id": obj.owner.id, "username": obj.owner.username}
+
+class FileVersionSerializer(serializers.ModelSerializer):
+    size = serializers.IntegerField(source="blob.size")
+    is_current = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FileVersion
+        fields = ["version_number", "size", "is_current", "created_at", "created_by"]
+
+    def get_is_current(self, obj):
+        return obj.blob_id == obj.file.blob_id
+
+    def get_created_by(self, obj):
+        if obj.created_by is None:
+            return None
+        return {"id": obj.created_by.id, "username": obj.created_by.username}
 
 
 class FileUploadSerializer(serializers.Serializer):

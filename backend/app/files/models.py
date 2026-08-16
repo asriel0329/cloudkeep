@@ -83,3 +83,26 @@ class File(models.Model):
 
     def __str__(self):
         return self.name
+
+class FileVersion(models.Model):
+    """
+    File 的歷史版本紀錄。每次上傳同名檔案覆蓋，就會多一筆版本，
+    File.blob 永遠指向「目前」的版本，但這裡保留完整歷史，
+    可以下載或還原成任何一個舊版本。
+    """
+
+    file = models.ForeignKey(File, on_delete=models.CASCADE, related_name="versions")
+    blob = models.ForeignKey(Blob, on_delete=models.PROTECT, related_name="file_versions")
+    version_number = models.PositiveIntegerField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        unique_together = ["file", "version_number"]
+        ordering = ["-version_number"]
+
+    def __str__(self):
+        return f"{self.file.name} v{self.version_number}"

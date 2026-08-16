@@ -9,6 +9,9 @@ from .views import (
     FileThumbnailView,
     FileTrashListView,
     FileUploadView,
+    FileVersionDownloadView,
+    FileVersionRestoreView,
+    FileVersionListView,
     StorageQuotaView,
 )
 
@@ -22,4 +25,7 @@ urlpatterns = [
     path("<int:pk>/thumbnail/", FileThumbnailView.as_view(), name="file-thumbnail"),
     path("<int:pk>/restore/", FileRestoreView.as_view(), name="file-restore"),
     path("<int:pk>/permanent/", FilePermanentDeleteView.as_view(), name="file-permanent-delete"),
+    path("<int:pk>/versions/", FileVersionListView.as_view(), name="file-version-list"),
+    path("<int:pk>/versions/<int:version_number>/restore/", FileVersionRestoreView.as_view(), name="file-version-restore"),
+    path("<int:pk>/versions/<int:version_number>/download/", FileVersionDownloadView.as_view(), name="file-version-download"),
 ]

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Blob, File
+from .models import Blob, File, FileVersion
 
 
 @admin.register(File)
@@ -18,3 +18,7 @@ class FileAdmin(admin.ModelAdmin):
 class BlobAdmin(admin.ModelAdmin):
     list_display = ["id", "hash", "size", "reference_count", "processing_status", "created_at"]
     search_fields = ["hash"]
+
+@admin.register(FileVersion)
+class FileVersionAdmin(admin.ModelAdmin):
+    list_display = ["id", "file", "version_number", "blob", "created_by", "created_at"]

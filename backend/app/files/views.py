@@ -21,6 +21,10 @@ from .serializers import FileSerializer, FileUploadSerializer
 from .tasks import process_uploaded_blob
 from .utils import generate_storage_key, release_blob_reference
 
+from django.db.models import Max
+
+from .models import Blob, File, FileVersion
+from .serializers import FileSerializer, FileUploadSerializer, FileVersionSerializer
 
 class FileListView(generics.ListAPIView):
     serializer_class = FileSerializer
@@ -94,7 +98,6 @@ class FileUploadView(APIView):
                 status=status.HTTP_507_INSUFFICIENT_STORAGE,
             )
 
-        # 先算 hash，這一步一定要在決定「要不要真的寫進 Storage」之前完成。
         hasher = hashlib.sha256()
         for chunk in uploaded_file.chunks():
             hasher.update(chunk)
@@ -102,6 +105,42 @@ class FileUploadView(APIView):
         uploaded_file.seek(0)
 
         blob, is_new_blob = _get_or_create_blob(uploaded_file, file_hash)
+
+        # 同資料夾、同檔名、還沒被刪除的檔案已經存在 -> 這次上傳視為覆蓋，
+        # 不是新建檔案，而是幫既有的 File 多加一筆版本紀錄。
+        existing_file = File.objects.filter(
+            owner=request.user, folder=folder, name=uploaded_file.name, is_deleted=False
+        ).first()
+
+        if existing_file:
+            if existing_file.folder is None:
+                allowed = existing_file.owner_id == request.user.id
+            else:
+                allowed = has_write_access(request.user, existing_file.folder)
+
+            if not allowed:
+                raise PermissionDenied("你沒有權限覆蓋這個檔案。")
+
+            next_version = (
+                existing_file.versions.aggregate(m=Max("version_number"))["m"] or 0
+            ) + 1
+
+            FileVersion.objects.create(
+                file=existing_file, blob=blob, version_number=next_version, created_by=request.user
+            )
+
+            existing_file.blob = blob
+            existing_file.mime_type = uploaded_file.content_type or "application/octet-stream"
+            existing_file.save(update_fields=["blob", "mime_type", "updated_at"])
+
+            transaction.on_commit(lambda: process_uploaded_blob.delay(blob.id))
+
+            log_action(
+                request.user, "new_version", "file", existing_file.id, existing_file.name,
+                detail=f"v{next_version}",
+            )
+
+            return Response(FileSerializer(existing_file).data, status=status.HTTP_200_OK)
 
         file_obj = File.objects.create(
             name=uploaded_file.name,
@@ -111,15 +150,15 @@ class FileUploadView(APIView):
             mime_type=uploaded_file.content_type or "application/octet-stream",
         )
 
-        # 即使 Blob 不是新的，也觸發任務——task 內部會自己檢查
-        # processing_status 是不是已經 DONE，是的話會直接跳過，
-        # 不會重複產生縮圖。
+        FileVersion.objects.create(
+            file=file_obj, blob=blob, version_number=1, created_by=request.user
+        )
+
         transaction.on_commit(lambda: process_uploaded_blob.delay(blob.id))
 
         log_action(request.user, "upload", "file", file_obj.id, file_obj.name)
 
         return Response(FileSerializer(file_obj).data, status=status.HTTP_201_CREATED)
-
 
 class FileDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = FileSerializer
@@ -245,8 +284,90 @@ class FilePermanentDeleteView(APIView):
 
         log_action(request.user, "purge_file", "file", file_obj.id, file_obj.name)
 
-        blob_id = file_obj.blob_id
-        file_obj.delete()
-        release_blob_reference(blob_id)
+        # 這個檔案曾經有過的每一個版本，各自佔用一個 Blob 的引用，
+        # 全部都要釋放掉，不然舊版本的內容會變成永遠回收不了的孤兒。
+        blob_ids = list(file_obj.versions.values_list("blob_id", flat=True))
+        file_obj.delete()  # CASCADE 會一併刪掉底下所有 FileVersion 記錄
+
+        for blob_id in blob_ids:
+            release_blob_reference(blob_id)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+class FileVersionListView(generics.ListAPIView):
+    """GET /api/files/<id>/versions/"""
+
+    serializer_class = FileVersionSerializer
+
+    def get_queryset(self):
+        file_obj = get_object_or_404(File, pk=self.kwargs["pk"], is_deleted=False)
+
+        if file_obj.folder is None:
+            allowed = file_obj.owner_id == self.request.user.id
+        else:
+            allowed = has_read_access(self.request.user, file_obj.folder)
+
+        if not allowed:
+            raise Http404
+
+        return file_obj.versions.all()
+
+
+class FileVersionRestoreView(APIView):
+    """POST /api/files/<id>/versions/<version_number>/restore/"""
+
+    def post(self, request, pk, version_number):
+        file_obj = get_object_or_404(File, pk=pk, is_deleted=False)
+
+        if file_obj.folder is None:
+            allowed = file_obj.owner_id == request.user.id
+        else:
+            allowed = has_write_access(request.user, file_obj.folder)
+
+        if not allowed:
+            raise PermissionDenied("你沒有權限還原這個檔案的版本。")
+
+        version = get_object_or_404(FileVersion, file=file_obj, version_number=version_number)
+
+        file_obj.blob = version.blob
+        file_obj.save(update_fields=["blob", "updated_at"])
+
+        log_action(
+            request.user, "restore_version", "file", file_obj.id, file_obj.name,
+            detail=f"v{version_number}",
+        )
+
+        return Response(FileSerializer(file_obj).data)
+
+
+class FileVersionDownloadView(APIView):
+    """GET /api/files/<id>/versions/<version_number>/download/"""
+
+    def get(self, request, pk, version_number):
+        file_obj = get_object_or_404(File, pk=pk, is_deleted=False)
+
+        if file_obj.folder is None:
+            allowed = file_obj.owner_id == request.user.id
+        else:
+            allowed = has_read_access(request.user, file_obj.folder)
+
+        if not allowed:
+            raise Http404
+
+        version = get_object_or_404(FileVersion, file=file_obj, version_number=version_number)
+
+        storage = get_storage()
+        if not storage.exists(version.blob.storage_key):
+            raise Http404
+
+        log_action(
+            request.user, "download_version", "file", file_obj.id, file_obj.name,
+            detail=f"v{version_number}",
+        )
+
+        file_handle = storage.open(version.blob.storage_key)
+        response = FileResponse(
+            file_handle, as_attachment=True, filename=f"v{version_number}_{file_obj.name}"
+        )
+        response["Content-Type"] = file_obj.mime_type
+        return response
