@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import TextEditorModal, { isTextEditable } from "./TextEditorModal";
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -25,7 +26,7 @@ export default function FileList({
   onShare,
 }) {
   const [busyId, setBusyId] = useState(null);
-
+  const [editingFile, setEditingFile] = useState(null);
   // 每個檔案 hover 時的縮圖狀態各自獨立管理：
   // 有沒有在 hover、縮圖網址、有沒有讀取失敗（例如縮圖還沒產生完）
   const [hoveredId, setHoveredId] = useState(null);
@@ -95,6 +96,7 @@ export default function FileList({
   }
 
   return (
+    <>
     <ul style={{ listStyle: "none", padding: 0 }}>
       {files.map((f) => (
         <li
@@ -128,6 +130,14 @@ export default function FileList({
               gap: "0.4rem",
             }}
           >
+            {isTextEditable(f) && (
+              <button
+                onClick={() => setEditingFile(f)}
+                disabled={busyId === f.id}
+              >
+                編輯
+              </button>
+            )}
             <button
               onClick={() => handleDownload(f)}
               disabled={busyId === f.id}
@@ -186,5 +196,17 @@ export default function FileList({
         </li>
       ))}
     </ul>
+    {editingFile && (
+        <TextEditorModal
+          file={editingFile}
+          folderId={editingFile.folder}
+          onClose={() => setEditingFile(null)}
+          onSaved={() => {
+            setEditingFile(null);
+            window.location.reload(); // 簡單粗暴地重新整理，確保檔案列表反映最新版本
+          }}
+        />
+      )}
+    </>
   );
 }
