@@ -3,6 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import {
   createFolder,
+  deleteFolder,
+  downloadFolder,
   getFolder,
   listFolders,
 } from "../api/folders";
@@ -115,6 +117,36 @@ export default function FolderBrowser() {
     );
   }
 
+  async function handleDownloadFolder(f) {
+    const blob = await downloadFolder(f.id);
+
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${f.name}.zip`;
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(url);
+  }
+
+  async function handleDeleteFolder(f) {
+    if (!window.confirm(`確定要刪除資料夾「${f.name}」嗎？裡面的內容會一併移進回收桶。`)) {
+      return;
+    }
+
+    await deleteFolder(f.id);
+
+    if (f.id === folder?.id) {
+      // 刪除的是目前正在瀏覽的這個資料夾本身，刪完應該回到上一層
+      goUp();
+    } else {
+      setSubfolders((prev) => prev.filter((sub) => sub.id !== f.id));
+    }
+  }
+
   async function handleCreateFolder(e) {
     e.preventDefault();
 
@@ -182,6 +214,10 @@ export default function FolderBrowser() {
 
         {folder && (
           <>
+            <button onClick={() => handleDownloadFolder(folder)}>
+              ⬇ 下載
+            </button>
+
             <button
               onClick={() => setShareTarget({
                 type: "folder",
@@ -195,6 +231,13 @@ export default function FolderBrowser() {
               onClick={() => setPermissionTarget(folder)}
             >
               👥 管理權限
+            </button>
+
+            <button
+              onClick={() => handleDeleteFolder(folder)}
+              style={{ color: "red" }}
+            >
+              🗑 刪除
             </button>
           </>
         )}
@@ -269,6 +312,10 @@ export default function FolderBrowser() {
                   gap: "0.4rem",
                 }}
               >
+                <button onClick={() => handleDownloadFolder(f)}>
+                  下載
+                </button>
+
                 <button
                   onClick={() =>
                     setShareTarget({
@@ -287,6 +334,13 @@ export default function FolderBrowser() {
                 >
                   權限管理
                 </button>
+
+                <button
+                  onClick={() => handleDeleteFolder(f)}
+                  style={{ color: "red" }}
+                >
+                  刪除
+                </button>
               </div>
             </li>
           ))}
@@ -298,6 +352,7 @@ export default function FolderBrowser() {
       <FileUploader
         folderId={folderId}
         onUploaded={refreshFiles}
+        onFolderCreated={refreshFolders}
       />
 
       <FileList

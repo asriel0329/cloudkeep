@@ -1,27 +1,33 @@
 import { useRef, useState } from "react";
 import { uploadFile } from "../api/files";
 import { chunkedUpload, resumeUpload, shouldUseChunkedUpload } from "../api/chunkedUpload";
+import {
+  collectFromDataTransferItems,
+  collectFromInputFileList,
+  createFolderResolver,
+  resolveFolderPath,
+} from "../api/folderUpload";
 
-export default function FileUploader({ folderId, onUploaded }) {
+export default function FileUploader({ folderId, onUploaded, onFolderCreated }) {
   const [dragging, setDragging] = useState(false);
-  const [uploads, setUploads] = useState([]); // [{ id, file, name, progress, error, sessionId }]
-  const inputRef = useRef(null);
+  const [uploads, setUploads] = useState([]); // [{ id, file, name, folderId, progress, error, sessionId }]
+  const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
 
   function updateEntry(entryId, patch) {
     setUploads((prev) => prev.map((u) => (u.id === entryId ? { ...u, ...patch } : u)));
   }
 
-  async function runOne(entryId, file, resumeSessionId) {
+  async function runOne(entryId, file, targetFolderId, resumeSessionId) {
     const onProgress = (progress) => updateEntry(entryId, { progress });
 
     try {
       if (resumeSessionId) {
-        // 之前中斷過，這次只補傳缺的分塊，不是從頭重來
         await resumeUpload(file, resumeSessionId, onProgress);
       } else if (shouldUseChunkedUpload(file)) {
-        await chunkedUpload(file, folderId, onProgress);
+        await chunkedUpload(file, targetFolderId, onProgress);
       } else {
-        await uploadFile(file, folderId, (evt) => {
+        await uploadFile(file, targetFolderId, (evt) => {
           if (!evt.total) return;
           onProgress(Math.round((evt.loaded / evt.total) * 100));
         });
@@ -36,42 +42,92 @@ export default function FileUploader({ folderId, onUploaded }) {
         err.response?.data?.detail ||
         "上傳失敗，可能是網路中斷";
 
-      // 分塊上傳失敗時，err 上會附帶 sessionId，讓使用者可以點「接著傳」，
-      // 只補傳缺的部分；一般上傳失敗則沒有 sessionId，只能整個重試。
       updateEntry(entryId, { error: message, sessionId: err.sessionId || null });
     }
   }
 
-  async function uploadFiles(fileList) {
-    const files = Array.from(fileList);
-    if (files.length === 0) return;
+  /**
+   * entries: [{ relativePath, file }]
+   * 這是資料夾上傳跟一般上傳共用的核心處理函式：
+   * 先把每個檔案的資料夾路徑解析/建立出來，再逐一觸發上傳。
+   */
+  async function processEntries(entries) {
+    if (entries.length === 0) return;
 
-    const entries = files.map((file) => ({
-      id: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+    const resolver = createFolderResolver();
+    const hasNestedPath = entries.some((e) => e.relativePath.includes("/"));
+
+    const prepared = await Promise.all(
+      entries.map(async (entry) => {
+        const segments = entry.relativePath.split("/");
+        const filename = segments.pop();
+        const targetFolderId =
+          segments.length === 0
+            ? folderId ?? null
+            : await resolveFolderPath(resolver, segments, folderId);
+
+        return { file: entry.file, name: filename, targetFolderId };
+      })
+    );
+
+    // 有建立新資料夾的話，通知上層刷新資料夾樹狀列表
+    if (hasNestedPath) {
+      onFolderCreated?.();
+    }
+
+    const newUploads = prepared.map(({ file, name, targetFolderId }) => ({
+      id: `${name}-${file.size}-${Date.now()}-${Math.random()}`,
       file,
-      name: file.name,
+      name,
+      folderId: targetFolderId,
       progress: 0,
       error: null,
       sessionId: null,
     }));
-    setUploads((prev) => [...prev, ...entries]);
 
-    await Promise.all(entries.map((entry) => runOne(entry.id, entry.file)));
+    setUploads((prev) => [...prev, ...newUploads]);
+
+    await Promise.all(
+      newUploads.map((entry) => runOne(entry.id, entry.file, entry.folderId))
+    );
   }
 
   function handleRetry(entry) {
     updateEntry(entry.id, { error: null });
-    runOne(entry.id, entry.file, entry.sessionId);
+    runOne(entry.id, entry.file, entry.folderId, entry.sessionId);
   }
 
-  function handleDrop(e) {
+  async function handleDrop(e) {
     e.preventDefault();
     setDragging(false);
-    uploadFiles(e.dataTransfer.files);
+
+    const items = e.dataTransfer.items;
+    if (items && items.length > 0 && items[0].webkitGetAsEntry) {
+      const entries = await collectFromDataTransferItems(items);
+      processEntries(entries);
+      return;
+    }
+
+    // 不支援 items API 的舊瀏覽器，退回成單純的檔案清單（不支援資料夾）
+    const entries = Array.from(e.dataTransfer.files).map((file) => ({
+      relativePath: file.name,
+      file,
+    }));
+    processEntries(entries);
   }
 
-  function handleChange(e) {
-    uploadFiles(e.target.files);
+  function handleFileChange(e) {
+    const entries = Array.from(e.target.files).map((file) => ({
+      relativePath: file.name,
+      file,
+    }));
+    processEntries(entries);
+    e.target.value = "";
+  }
+
+  function handleFolderChange(e) {
+    const entries = collectFromInputFileList(e.target.files);
+    processEntries(entries);
     e.target.value = "";
   }
 
@@ -84,23 +140,33 @@ export default function FileUploader({ folderId, onUploaded }) {
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
         style={{
           border: `2px dashed ${dragging ? "#4a90e2" : "#ccc"}`,
           borderRadius: "8px",
           padding: "1.5rem",
           textAlign: "center",
           color: "#888",
-          cursor: "pointer",
           background: dragging ? "#f0f7ff" : "transparent",
         }}
       >
-        將檔案拖曳到這裡上傳，或點擊選擇檔案
+        將檔案或資料夾拖曳到這裡上傳
+        <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem", justifyContent: "center" }}>
+          <button onClick={() => fileInputRef.current?.click()}>選擇檔案</button>
+          <button onClick={() => folderInputRef.current?.click()}>選擇資料夾</button>
+        </div>
         <input
-          ref={inputRef}
+          ref={fileInputRef}
           type="file"
           multiple
-          onChange={handleChange}
+          onChange={handleFileChange}
+          style={{ display: "none" }}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          webkitdirectory=""
+          directory=""
+          onChange={handleFolderChange}
           style={{ display: "none" }}
         />
       </div>

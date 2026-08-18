@@ -1,24 +1,22 @@
-from app.auditlog.utils import log_action
+import io
+import zipfile
 
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
-from rest_framework import generics
-from rest_framework.exceptions import PermissionDenied, ValidationError
-
-from app.permissions.utils import has_read_access, has_write_access
-
-from .models import Folder
-from .serializers import FolderSerializer
-
 from django.utils import timezone
-from .utils import cascade_restore, cascade_soft_delete
-
-from rest_framework import status
+from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from app.auditlog.utils import log_action
-
 from app.files.utils import release_blob_reference
+from app.permissions.utils import has_read_access, has_write_access
+from app.storage import get_storage
+
+from .models import Folder
+from .serializers import FolderSerializer
+from .utils import cascade_restore, cascade_soft_delete
 
 class FolderListCreateView(generics.ListCreateAPIView):
     """
@@ -105,6 +103,13 @@ class FolderDetailView(generics.RetrieveUpdateDestroyAPIView):
 
         serializer.save()
 
+    def perform_destroy(self, instance):
+        if not has_write_access(self.request.user, instance):
+            raise PermissionDenied("你沒有權限刪除這個資料夾。")
+
+        log_action(self.request.user, "trash_folder", "folder", instance.id, instance.name)
+        cascade_soft_delete(instance)
+
 class FolderTrashListView(generics.ListAPIView):
     """GET /api/folders/trash/ —— 列出自己回收桶裡的資料夾"""
 
@@ -144,3 +149,44 @@ class FolderPermanentDeleteView(APIView):
         log_action(request.user, "purge_folder", "folder", folder.id, folder.name)
         folder.delete()  # CASCADE 會一併刪掉底下所有子資料夾、檔案的資料庫記錄
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class FolderDownloadView(APIView):
+    """
+    GET /api/folders/<id>/download/
+    把資料夾（含所有子資料夾、檔案）打包成一個 zip 檔案下載。
+    """
+
+    def get(self, request, pk):
+        folder = get_object_or_404(Folder, pk=pk, is_deleted=False)
+
+        if not has_read_access(request.user, folder):
+            raise Http404
+
+        storage = get_storage()
+
+        # 用記憶體緩衝區組 zip，不落地寫暫存檔——資料夾內容通常不會
+        # 大到爆記憶體，這樣寫法比較簡單，也不用另外處理暫存檔清理。
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            _add_folder_to_zip(zip_file, folder, storage, prefix="")
+
+        buffer.seek(0)
+
+        log_action(request.user, "download_folder", "folder", folder.id, folder.name)
+
+        response = FileResponse(
+            buffer, as_attachment=True, filename=f"{folder.name}.zip"
+        )
+        response["Content-Type"] = "application/zip"
+        return response
+
+
+def _add_folder_to_zip(zip_file, folder, storage, prefix):
+    for file_obj in folder.files.filter(is_deleted=False):
+        if storage.exists(file_obj.blob.storage_key):
+            with storage.open(file_obj.blob.storage_key) as f:
+                zip_file.writestr(f"{prefix}{file_obj.name}", f.read())
+
+    for child in folder.children.filter(is_deleted=False):
+        _add_folder_to_zip(zip_file, child, storage, prefix=f"{prefix}{child.name}/")
