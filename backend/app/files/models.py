@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -106,3 +108,51 @@ class FileVersion(models.Model):
 
     def __str__(self):
         return f"{self.file.name} v{self.version_number}"
+
+class UploadSession(models.Model):
+    """
+    大檔案分塊上傳的「工作階段」。前端把檔案切成好幾塊，
+    每上傳一塊就記錄進 received_chunks，全部到齊後才組裝、
+    走正式的去重/版本控制流程產生真正的 File。
+
+    斷線重連時，前端可以查詢這個 session 的 received_chunks，
+    只補傳缺的部分，不用整個檔案重傳。
+    """
+
+    STATUS_UPLOADING = "uploading"
+    STATUS_ASSEMBLING = "assembling"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_UPLOADING, "上傳中"),
+        (STATUS_ASSEMBLING, "組裝中"),
+        (STATUS_COMPLETED, "完成"),
+        (STATUS_FAILED, "失敗"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="upload_sessions"
+    )
+    folder = models.ForeignKey(
+        Folder, null=True, blank=True, on_delete=models.CASCADE, related_name="upload_sessions"
+    )
+
+    filename = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=255, default="application/octet-stream")
+
+    total_size = models.BigIntegerField()
+    chunk_size = models.BigIntegerField(default=5 * 1024 * 1024)  # 預設每塊 5MB
+    total_chunks = models.PositiveIntegerField()
+
+    # 已收到的分塊編號列表，例如 [0, 1, 3]（代表 2 號還沒收到）
+    received_chunks = models.JSONField(default=list)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_UPLOADING)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"upload:{self.filename} ({self.status})"

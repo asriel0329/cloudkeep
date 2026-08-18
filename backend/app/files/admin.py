@@ -1,7 +1,13 @@
 from django.contrib import admin
 
 from .models import Blob, File, FileVersion
+from .models import Blob, File, FileVersion, UploadSession
 
+
+@admin.register(UploadSession)
+class UploadSessionAdmin(admin.ModelAdmin):
+    list_display = ["id", "filename", "owner", "status", "total_chunks", "created_at"]
+    list_filter = ["status"]
 
 @admin.register(File)
 class FileAdmin(admin.ModelAdmin):

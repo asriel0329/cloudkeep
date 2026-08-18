@@ -13,6 +13,10 @@ from .views import (
     FileVersionRestoreView,
     FileVersionListView,
     StorageQuotaView,
+    UploadCompleteView,
+    UploadSessionInitView,
+    UploadSessionStatusView,
+    UploadChunkView,
 )
 
 urlpatterns = [
@@ -28,4 +32,8 @@ urlpatterns = [
     path("<int:pk>/versions/", FileVersionListView.as_view(), name="file-version-list"),
     path("<int:pk>/versions/<int:version_number>/restore/", FileVersionRestoreView.as_view(), name="file-version-restore"),
     path("<int:pk>/versions/<int:version_number>/download/", FileVersionDownloadView.as_view(), name="file-version-download"),
+    path("upload/sessions/", UploadSessionInitView.as_view(), name="upload-session-init"),
+    path("upload/sessions/<uuid:session_id>/", UploadSessionStatusView.as_view(), name="upload-session-status"),
+    path("upload/sessions/<uuid:session_id>/chunks/<int:chunk_number>/", UploadChunkView.as_view(), name="upload-chunk"),
+    path("upload/sessions/<uuid:session_id>/complete/", UploadCompleteView.as_view(), name="upload-complete"),
 ]
