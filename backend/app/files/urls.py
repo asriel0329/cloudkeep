@@ -17,6 +17,7 @@ from .views import (
     UploadSessionInitView,
     UploadSessionStatusView,
     UploadChunkView,
+    EmptyTrashView,
 )
 
 urlpatterns = [
@@ -24,6 +25,7 @@ urlpatterns = [
     path("upload/", FileUploadView.as_view(), name="file-upload"),
     path("quota/", StorageQuotaView.as_view(), name="file-quota"),
     path("trash/", FileTrashListView.as_view(), name="file-trash-list"),
+    path("trash/empty/", EmptyTrashView.as_view(), name="file-empty-trash"),
     path("<int:pk>/", FileDetailView.as_view(), name="file-detail"),
     path("<int:pk>/download/", FileDownloadView.as_view(), name="file-download"),
     path("<int:pk>/thumbnail/", FileThumbnailView.as_view(), name="file-thumbnail"),

@@ -27,3 +27,7 @@ export async function permanentDeleteFile(id) {
 export async function permanentDeleteFolder(id) {
   await client.delete(`/folders/${id}/permanent/`);
 }
+
+export async function emptyTrash() {
+  await client.post("/files/trash/empty/");
+}

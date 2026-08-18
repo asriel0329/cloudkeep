@@ -5,6 +5,7 @@ from django.db.models import Max
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.db.models import Q
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser
@@ -251,10 +252,15 @@ class StorageQuotaView(APIView):
         )
 
 class FileTrashListView(generics.ListAPIView):
+    """同樣道理：只列出「直接被刪除」的檔案，不列出因為資料夾被刪
+    而連帶進垃圾桶的檔案（那些檔案會跟著它所屬的資料夾一起顯示/還原）。"""
+
     serializer_class = FileSerializer
 
     def get_queryset(self):
-        return File.objects.filter(owner=self.request.user, is_deleted=True)
+        return File.objects.filter(owner=self.request.user, is_deleted=True).filter(
+            Q(folder__isnull=True) | Q(folder__is_deleted=False)
+        )
 
 class FileRestoreView(APIView):
     def post(self, request, pk):
@@ -505,3 +511,29 @@ class UploadCompleteView(APIView):
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
+class EmptyTrashView(APIView):
+    """
+    POST /api/files/trash/empty/
+    把回收桶裡所有東西（檔案 + 資料夾）一次永久清空。
+    """
+
+    def post(self, request):
+        # 先清資料夾（會連帶處理裡面所有子項目），
+        # 再清「不屬於任何資料夾、單獨被刪除」的根層級檔案。
+        from app.folders.models import Folder
+        from app.folders.views import _purge_folder
+
+        top_folders = Folder.objects.filter(owner=request.user, is_deleted=True)
+        for folder in top_folders:
+            _purge_folder(folder)
+
+        root_files = File.objects.filter(owner=request.user, is_deleted=True, folder__isnull=True)
+        for file_obj in root_files:
+            blob_ids = list(file_obj.versions.values_list("blob_id", flat=True))
+            file_obj.delete()
+            for blob_id in blob_ids:
+                release_blob_reference(blob_id)
+
+        log_action(request.user, "empty_trash", "trash", None, "")
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

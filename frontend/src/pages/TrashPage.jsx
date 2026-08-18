@@ -7,6 +7,7 @@ import {
   permanentDeleteFolder,
   restoreFile,
   restoreFolder,
+  emptyTrash,
 } from "../api/trash";
 
 export default function TrashPage() {
@@ -69,13 +70,35 @@ export default function TrashPage() {
     }
   }
 
+  async function handleEmptyTrash() {
+    if (!window.confirm("確定要清空回收桶嗎？裡面所有的檔案與資料夾將被永久刪除，無法復原。")) return;
+    setBusyKey("empty-trash");
+    try {
+      await emptyTrash();
+      await load();
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   if (loading) return <p style={{ padding: "2rem" }}>載入中...</p>;
 
   return (
     <div style={{ fontFamily: "sans-serif", padding: "2rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>回收桶</h1>
-        <Link to="/">⬅ 回到我的檔案</Link>
+        <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+          {(files.length > 0 || folders.length > 0) && (
+            <button
+              onClick={handleEmptyTrash}
+              disabled={busyKey === "empty-trash"}
+              style={{ color: "red" }}
+            >
+              🗑 清空回收桶
+            </button>
+          )}
+          <Link to="/">⬅ 回到我的檔案</Link>
+        </div>
       </div>
 
       <h2>資料夾</h2>

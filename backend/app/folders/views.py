@@ -4,6 +4,7 @@ import zipfile
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.db.models import Q
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -111,12 +112,15 @@ class FolderDetailView(generics.RetrieveUpdateDestroyAPIView):
         cascade_soft_delete(instance)
 
 class FolderTrashListView(generics.ListAPIView):
-    """GET /api/folders/trash/ —— 列出自己回收桶裡的資料夾"""
+    """GET /api/folders/trash/ —— 只列出「直接被刪除」的資料夾（cascade 的頂層），
+    不會把因為父資料夾被刪而連帶進垃圾桶的子資料夾也列出來，避免畫面很亂。"""
 
     serializer_class = FolderSerializer
 
     def get_queryset(self):
-        return Folder.objects.filter(owner=self.request.user, is_deleted=True)
+        return Folder.objects.filter(owner=self.request.user, is_deleted=True).filter(
+            Q(parent__isnull=True) | Q(parent__is_deleted=False)
+        )
 
 
 class FolderRestoreView(APIView):
@@ -129,25 +133,33 @@ class FolderRestoreView(APIView):
         return Response(FolderSerializer(folder).data)
 
 
+def _purge_folder(folder):
+    """
+    遞迴清除一個資料夾底下所有檔案的 Blob 引用，最後把資料夾本身也刪掉。
+    這是共用函式，FolderPermanentDeleteView 跟 files.EmptyTrashView 都會用到。
+    """
+
+    for file_obj in folder.files.all():
+        blob_ids = list(file_obj.versions.values_list("blob_id", flat=True))
+        file_obj.delete()
+        for blob_id in blob_ids:
+            release_blob_reference(blob_id)
+
+    for child in folder.children.all():
+        _purge_folder(child)
+
+    folder.delete()  # CASCADE 會一併刪掉底下所有子資料夾的資料庫記錄
+
+
 class FolderPermanentDeleteView(APIView):
     """DELETE /api/folders/<id>/permanent/ —— 從回收桶徹底刪除（連同底下所有內容）"""
 
     def delete(self, request, pk):
         folder = get_object_or_404(Folder, pk=pk, owner=request.user, is_deleted=True)
 
-        from app.storage import get_storage
-
-        def purge(f):
-            for file_obj in f.files.all():
-                blob_id = file_obj.blob_id
-                file_obj.delete()
-                release_blob_reference(blob_id)
-            for child in f.children.all():
-                purge(child)
-
-        purge(folder)
         log_action(request.user, "purge_folder", "folder", folder.id, folder.name)
-        folder.delete()  # CASCADE 會一併刪掉底下所有子資料夾、檔案的資料庫記錄
+        _purge_folder(folder)
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
